@@ -7,7 +7,7 @@
 #include "hybrid_astar.h"
 #include "param_reader.h"
 
-int main(int argc, char**argv){
+int main(int argc, char**argv){    
     if(argc !=2 ) return -1;
     ParamReader reader;
     if(reader.loadParam(argv[1])){
@@ -53,6 +53,7 @@ int main(int argc, char**argv){
             std::chrono::duration<double> dt = te-ts;
             LOG(INFO)<<"succeed to find the path! cost time "<<dt.count()<<"s.";
             cv::Mat img = map->drawResult(*car, solution);
+            cv::imwrite("./plan_res.jpg", img);
             cv::imshow("xxx", img);
             cv::waitKey(0);
         }else{

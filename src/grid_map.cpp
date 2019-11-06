@@ -52,12 +52,22 @@ void GridMap::xy2rc(const double x, const double y, int &r, int& c){
 
 cv::Mat GridMap::drawResult(const Car& car, const std::vector<Pose2D>& path){
     cv::Mat img = _map.clone();
+    if(path.empty()) return img;
     cv::cvtColor(img, img, CV_GRAY2BGR);
     std::vector<cv::Point2f> foot_prints;
     double wx,wy;
     int r, c;
+    Pose2D former = path.at(0);
     for(int i = 0; i < path.size(); i+=1){
         const auto& pose = path.at(i);
+        if(i>0 && i<path.size()-1){
+            double dx = pose.x() - former.x();
+            double dy = pose.y() - former.y();
+            if(std::sqrt(dx*dx + dy*dy)<0.3){
+                continue;
+            }
+        }
+        
         for(const auto& foot: car.footPrint()){
             wx = pose.x() + foot.first * std::cos(pose.theta()) - foot.second*std::sin(pose.theta());
             wy = pose.y() + foot.first * std::sin(pose.theta()) + foot.second*std::cos(pose.theta());
@@ -74,6 +84,7 @@ cv::Mat GridMap::drawResult(const Car& car, const std::vector<Pose2D>& path){
             cv::circle(img, (foot_prints[0]+foot_prints[1]) / 2, 1, cv::Scalar(0,0,255));
         }        
         foot_prints.clear();
+        former = pose;
     }
 
     return img;

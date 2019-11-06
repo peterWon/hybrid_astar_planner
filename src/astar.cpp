@@ -18,10 +18,11 @@ uint8_t AStar::getCost(int distance) {
         cost = _grid_inflation_radius;
     }else {
         // make sure cost falls off by Euclidean distance
-        double euclidean_distance = distance;
+        /* double euclidean_distance = distance;
         double factor = exp(-1.0 * _cost_descend_rate 
                         * (euclidean_distance - _inflation_radius));
-        cost = (uint8_t)((_grid_inflation_radius - 1) * factor);
+        cost = (uint8_t)((_grid_inflation_radius - 1) * factor); */
+        cost = 0;
     }
     return cost;
 }

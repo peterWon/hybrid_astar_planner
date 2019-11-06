@@ -39,12 +39,16 @@ void HybridAStar::initialize(Car* car, GridMap* map,double time_tolerance,
     _goal_tolerance_dist = goal_tolerance_dist;
     _astar->buildGraph(_map->getData(),
                        _map->getWidth(), 
-                       _map->getHeight(), 
-                       _car->width() / (2 * _map->getResolution()));
+                       _map->getHeight(), 0
+                       /* _car->width() / (2 * _map->getResolution()) */);
 }
 
 double HybridAStar::computeHCost(const Pose2D& start, const Pose2D& goal){
-    int sr, sc,er,ec;
+    // it is faster to use 2d heuristic instead of holonomic-with-obstacles
+    double dx = start.x() - goal.x();
+    double dy = start.y() - goal.y();
+    return std::sqrt(dx*dx + dy*dy);
+    /* int sr, sc,er,ec;
     _map->xy2rc(start.x(), start.y(), sr, sc);
     _map->xy2rc(goal.x(), goal.y(), er, ec);
     Cell s(sr, sc), e(er, ec);
@@ -58,7 +62,7 @@ double HybridAStar::computeHCost(const Pose2D& start, const Pose2D& goal){
         dy = astar_path[i]._row - astar_path[i-1]._row; 
         l += std::sqrt(dx*dx + dy*dy);
     }
-    return l*_map->getResolution();//directly using astar_path.size() will slow down 4 times!
+    return l*_map->getResolution(); *///directly using astar_path.size() will slow down 4 times!
 }
 
 void HybridAStar::tracePath(Node* const e,  Node* const s, std::vector<Pose2D>* path){
@@ -95,13 +99,16 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
     _openset[snode->getID()] = snode;
 
     auto ts = std::chrono::system_clock::now();
+    double nonholonomic_cost = 0.0, holonomic_cost = 0.0;
     while(!openset_quene.empty()){
+        LOG(ERROR)<<_openset.size();
         Node* node = openset_quene.top();
         openset_quene.pop();
         _openset.erase(node->getID());
         _closeset[node->getID()] = node;
         std::vector<Pose2D> rs_path;
-        if(reedsSheppShot(node->pose(), goal, rs_path)){
+        
+        if(reedsSheppShot(node->pose(), goal, rs_path, nonholonomic_cost)){
             // add these points to solution, and trace back the past
             tracePath(node , snode, &path);
             path.insert(path.end(), rs_path.begin(), rs_path.end());
@@ -112,7 +119,7 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
             return true;
         }
         auto te = std::chrono::system_clock::now();
-        if(std::chrono::duration<double>(te - ts).count() > _time_tolerance) return false;
+        // if(std::chrono::duration<double>(te - ts).count() > _time_tolerance) return false;
         std::map<SUBPATH_TYPE, std::vector<Pose2D>> frontier = neighbors(node->pose());
         for(int i = 0; i < 6; ++i){
             SUBPATH_TYPE type = static_cast<SUBPATH_TYPE>(i);
@@ -125,10 +132,14 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
             double cost_so_far;
             bool to_insert = false;
             
-            if(type == STRAIGHT_BACKWORD || type==STRAIGHT_FORWORD){
-                cost_so_far = node->costSoFar() + length(sub_path);
+            if(type==STRAIGHT_FORWORD){
+                cost_so_far = node->costSoFar() + _step_size;
+            }else if(type==STRAIGHT_BACKWORD){
+                cost_so_far = node->costSoFar() + _step_size*_backward_penalty_factor;
+            }else if(type==LEFT_FORWORD || type==RIGHT_FORWORD){
+                cost_so_far = node->costSoFar() + _step_size*_turning_penalty_factor;
             }else{
-                cost_so_far = node->costSoFar() + length(sub_path)*_turning_penalty_factor;
+                cost_so_far = node->costSoFar() + _step_size*_turning_penalty_factor*_backward_penalty_factor;
             }
             if(_openset.find(idx) == _openset.end()){
                 to_insert = true;
@@ -140,12 +151,17 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
                 _openset[idx]->setTotalCost(cost_so_far+_openset[idx]->heuristicCost());
             }
             
-            if(to_insert){
-                hcost = computeHCost(sub_path.back(), goal)*_heuristic_factor;
-                Node* n = new Node(hcost, cost_so_far, hcost+cost_so_far, node, sub_path.back(), sub_path);
-                setNodeID(n);
-                openset_quene.push(n);
-                _openset[n->getID()] = n;
+            if(to_insert){               
+                holonomic_cost = computeHCost(sub_path.back(), goal);
+                if(holonomic_cost<100.0){
+                    // LOG(ERROR)<<type<<","<<nonholonomic_cost<<","<<holonomic_cost<<","<<cost_so_far;
+                    hcost = std::max(holonomic_cost, nonholonomic_cost);  
+                    // hcost = holonomic_cost;
+                    Node* n = new Node(hcost, cost_so_far, hcost+cost_so_far, node, sub_path.back(), sub_path);
+                    setNodeID(n);
+                    openset_quene.push(n);
+                    _openset[n->getID()] = n;
+                }
             }
         }
     }
@@ -162,7 +178,7 @@ int HybridAStar::computeNodeID(const Pose2D& pose){
     const double theta_resolution = 1.0;
     _map->xy2rc(pose.x(), pose.y(), r, c);
     double yaw = normalizeTheta(pose.theta());
-    t = static_cast<int>((yaw + M_PI) * 57.29);//57.29
+    t = static_cast<int>((yaw + M_PI) * 57.29 / 10);//theta resolution：10°
     return _map->getWidth()*_map->getHeight()*t + r*_map->getWidth()+c;
 }
 
@@ -262,9 +278,9 @@ std::map<SUBPATH_TYPE, std::vector<Pose2D>> HybridAStar::neighbors(const Pose2D&
 }
 
 bool HybridAStar::checkPath(std::vector<Pose2D>& path){
-    // cv::Mat xxx = _map->drawResult(*_car, path);
-    // cv::imshow("sss", xxx);
-    // cv::waitKey(0);
+    /* cv::Mat xxx = _map->drawResult(*_car, path);
+    cv::imshow("sss", xxx);
+    cv::waitKey(0); */
     for(const auto& p: path){
         if(_map->isCollision(*_car, p)) return false;
     }
@@ -273,7 +289,8 @@ bool HybridAStar::checkPath(std::vector<Pose2D>& path){
 
 bool HybridAStar::reedsSheppShot(const Pose2D& start,
                                  const Pose2D& goal,
-                                 std::vector<Pose2D>& rs_path){
+                                 std::vector<Pose2D>& rs_path,
+                                 double& len){
     namespace ob = ompl::base;
     namespace og = ompl::geometric;
     ob::StateSpacePtr space(std::make_shared<ob::ReedsSheppStateSpace>());
@@ -282,11 +299,13 @@ bool HybridAStar::reedsSheppShot(const Pose2D& start,
     from[0] = start.x(); from[1] = start.y(); from[2] = start.theta();
     to[0] = goal.x(); to[1] = goal.y(); to[2] = goal.theta();
     std::vector<double> reals;
+    len = space->distance(from(), to());    
     for (unsigned int i=0; i<=num_pts; ++i){
         space->interpolate(from(), to(), (double)i/num_pts, s());
         reals = s.reals();
         rs_path.push_back(Pose2D(reals[0], reals[1], reals[2]));
     }
+    
     if(checkPath(rs_path)){
         return true;
     }else{

@@ -31,7 +31,8 @@ private:
     void setNodeID(Node* node);
     int computeNodeID(const Pose2D& pose);
     double length(const std::vector<Pose2D>& path);
-    bool reedsSheppShot(const Pose2D& start, const Pose2D& goal, std::vector<Pose2D>& rs_path);
+    bool reedsSheppShot(const Pose2D& start, const Pose2D& goal, 
+                        std::vector<Pose2D>& rs_path, double& length);
     bool isReachedGoal(const Pose2D& pos, const Pose2D& goal);
     bool checkPath(std::vector<Pose2D>& path);
     
@@ -52,11 +53,14 @@ private:
 
     double _time_tolerance = 20.0; //seconds
     double _step_size = 1.0;  // m
-    double _turning_penalty_factor = 5.0;
-    double _heuristic_factor = 2.0;
+    
+    double _heuristic_factor = 1.0;
 
     double _goal_tolerance_dist = 0.5;
     double _goal_tolerance_theta = 0.1;
+
+    double _turning_penalty_factor = 1.5;
+    double _backward_penalty_factor = 1.5;
 };
 
 #endif
