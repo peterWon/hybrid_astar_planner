@@ -21,7 +21,8 @@ public:
     HybridAStar();
     ~HybridAStar();
     bool plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose2D>& path);
-    void initialize(Car* car, GridMap* map, 
+    void initialize(Car* car, GridMap* map,
+                    bool enable_backward = true,
                     double time_tolerance=20.0,
                     double step_size=1.0,
                     double turning_penalty_factor = 5.0,
@@ -32,6 +33,8 @@ private:
     int computeNodeID(const Pose2D& pose);
     double length(const std::vector<Pose2D>& path);
     bool reedsSheppShot(const Pose2D& start, const Pose2D& goal, 
+                        std::vector<Pose2D>& rs_path, double& length);
+    bool dubinsShot(const Pose2D& start, const Pose2D& goal, 
                         std::vector<Pose2D>& rs_path, double& length);
     bool isReachedGoal(const Pose2D& pos, const Pose2D& goal);
     bool checkPath(std::vector<Pose2D>& path);
@@ -61,6 +64,8 @@ private:
 
     double _turning_penalty_factor = 1.5;
     double _backward_penalty_factor = 1.5;
+
+    bool _enable_backward = true;
 };
 
 #endif

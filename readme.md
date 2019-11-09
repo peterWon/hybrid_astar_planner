@@ -2,6 +2,7 @@
 - this repo is implementation of hybrid-atar-planner for reeds-shepp car, it support to plan drivable path for carlike robot, and take the obstacle avoidance into account.
 
 ### Depends
+- ompl, for computing reeds-shepp path
 - opencv, use it to store map data and visulization
 - glog, use it to logging debug info
 - you can easily remove dependancy from both opencv and glog

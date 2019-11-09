@@ -1,5 +1,6 @@
 #include <chrono>
 #include <ompl/base/spaces/ReedsSheppStateSpace.h>
+#include <ompl/base/spaces/DubinsStateSpace.h>
 #include <ompl/geometric/SimpleSetup.h>
 #include <glog/logging.h>
 
@@ -26,10 +27,14 @@ HybridAStar::~HybridAStar(){
     delete _astar;
 }
 
-void HybridAStar::initialize(Car* car, GridMap* map,double time_tolerance,
-                             double step_size, double turning_penalty_factor,
+void HybridAStar::initialize(Car* car, GridMap* map,
+                             bool enable_backward,
+                             double time_tolerance,
+                             double step_size,
+                             double turning_penalty_factor,
                              double goal_tolerance_dist,
                              double goal_tolerance_theta){
+    _enable_backward = enable_backward;
     _car = car;
     _map = map;
     _time_tolerance = time_tolerance;
@@ -39,8 +44,8 @@ void HybridAStar::initialize(Car* car, GridMap* map,double time_tolerance,
     _goal_tolerance_dist = goal_tolerance_dist;
     _astar->buildGraph(_map->getData(),
                        _map->getWidth(), 
-                       _map->getHeight(), 0
-                       /* _car->width() / (2 * _map->getResolution()) */);
+                       _map->getHeight(),
+                       _car->width() / (2 * _map->getResolution()));
 }
 
 double HybridAStar::computeHCost(const Pose2D& start, const Pose2D& goal){
@@ -93,6 +98,16 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
     std::priority_queue<Node*,
         std::vector<Node*>, decltype(cmp)> openset_quene(cmp);
     double hcost = computeHCost(start, goal)*_heuristic_factor; 
+
+    /* int sr, sc,er,ec;
+    _map->xy2rc(start.x(), start.y(), sr, sc);
+    _map->xy2rc(goal.x(), goal.y(), er, ec);
+    Cell s(sr, sc), e(er, ec);
+    _astar->buildHeuristicGraph(_map->getData(),s,e,
+                       _map->getWidth(), 
+                       _map->getHeight(),
+                       _car->width() / (2 * _map->getResolution())); */
+
     Node *snode = new Node(hcost, 0, hcost, nullptr, start, {});
     setNodeID(snode);
     openset_quene.push(snode);
@@ -106,14 +121,23 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
         openset_quene.pop();
         _openset.erase(node->getID());
         _closeset[node->getID()] = node;
-        std::vector<Pose2D> rs_path;
-        
-        if(reedsSheppShot(node->pose(), goal, rs_path, nonholonomic_cost)){
-            // add these points to solution, and trace back the past
-            tracePath(node , snode, &path);
-            path.insert(path.end(), rs_path.begin(), rs_path.end());
-            return true;
+        std::vector<Pose2D> shot_path;
+        if(_enable_backward){
+            if(reedsSheppShot(node->pose(), goal, shot_path, nonholonomic_cost)){
+                // add these points to solution, and trace back the past
+                tracePath(node , snode, &path);
+                path.insert(path.end(), shot_path.begin(), shot_path.end());
+                return true;
+            }
+        }else{
+            if(dubinsShot(node->pose(), goal, shot_path, nonholonomic_cost)){
+                // add these points to solution, and trace back the past
+                tracePath(node , snode, &path);
+                path.insert(path.end(), shot_path.begin(), shot_path.end());
+                return true;
+            }
         }
+        
         if(isReachedGoal(node->pose(), goal)){
             tracePath(node , snode, &path);
             return true;
@@ -121,7 +145,8 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
         auto te = std::chrono::system_clock::now();
         // if(std::chrono::duration<double>(te - ts).count() > _time_tolerance) return false;
         std::map<SUBPATH_TYPE, std::vector<Pose2D>> frontier = neighbors(node->pose());
-        for(int i = 0; i < 6; ++i){
+        int type_num = _enable_backward ? 6 : 3;
+        for(int i = 0; i < type_num; ++i){
             SUBPATH_TYPE type = static_cast<SUBPATH_TYPE>(i);
             auto& sub_path = frontier[type];
             if(sub_path.empty()) continue;
@@ -141,6 +166,7 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
             }else{
                 cost_so_far = node->costSoFar() + _step_size*_turning_penalty_factor*_backward_penalty_factor;
             }
+
             if(_openset.find(idx) == _openset.end()){
                 to_insert = true;
             }else if(cost_so_far < _openset[idx]->costSoFar()){
@@ -153,7 +179,11 @@ bool HybridAStar::plan(const Pose2D& start, const Pose2D& goal, std::vector<Pose
             
             if(to_insert){               
                 holonomic_cost = computeHCost(sub_path.back(), goal);
-                if(holonomic_cost<100.0){
+                // int row,col;
+                // _map->xy2rc(sub_path.back().x(), sub_path.back().y(), row, col);
+                // double cutpath_cost = _astar->getCellCost(row, col);
+
+                if(holonomic_cost<_map->getHeight()*_map->getWidth()){
                     // LOG(ERROR)<<type<<","<<nonholonomic_cost<<","<<holonomic_cost<<","<<cost_so_far;
                     hcost = std::max(holonomic_cost, nonholonomic_cost);  
                     // hcost = holonomic_cost;
@@ -258,10 +288,13 @@ std::map<SUBPATH_TYPE, std::vector<Pose2D>> HybridAStar::neighbors(const Pose2D&
     const double resolution = _map->getResolution();
 
     std::map<SUBPATH_TYPE, std::vector<Pose2D>> sub_paths;
-    std::vector<SUBPATH_TYPE> types = {
-        LEFT_FORWORD, STRAIGHT_FORWORD, RIGHT_FORWORD,
-        LEFT_BACKWARD, STRAIGHT_BACKWORD, RIGHT_BACKWARD
-    };
+    std::vector<SUBPATH_TYPE> types = {};
+    if(_enable_backward){
+        types = {LEFT_FORWORD, STRAIGHT_FORWORD, RIGHT_FORWORD,
+                 LEFT_BACKWARD, STRAIGHT_BACKWORD, RIGHT_BACKWARD};
+    }else{
+        types = {LEFT_FORWORD, STRAIGHT_FORWORD, RIGHT_FORWORD};
+    }
     for(const auto& type: types){
         std::vector<Pose2D> path = {};
         if(type==STRAIGHT_FORWORD || type==STRAIGHT_BACKWORD){
@@ -293,7 +326,33 @@ bool HybridAStar::reedsSheppShot(const Pose2D& start,
                                  double& len){
     namespace ob = ompl::base;
     namespace og = ompl::geometric;
-    ob::StateSpacePtr space(std::make_shared<ob::ReedsSheppStateSpace>());
+    ob::StateSpacePtr space(std::make_shared<ob::ReedsSheppStateSpace>(_car->minTurningRadius()));
+    const unsigned int num_pts = 100;
+    ob::ScopedState<> from(space), to(space), s(space);
+    from[0] = start.x(); from[1] = start.y(); from[2] = start.theta();
+    to[0] = goal.x(); to[1] = goal.y(); to[2] = goal.theta();
+    std::vector<double> reals;
+    len = space->distance(from(), to());    
+    for (unsigned int i=0; i<=num_pts; ++i){
+        space->interpolate(from(), to(), (double)i/num_pts, s());
+        reals = s.reals();
+        rs_path.push_back(Pose2D(reals[0], reals[1], reals[2]));
+    }
+    
+    if(checkPath(rs_path)){
+        return true;
+    }else{
+        return false;
+    }
+}
+
+bool HybridAStar::dubinsShot(const Pose2D& start,
+                                 const Pose2D& goal,
+                                 std::vector<Pose2D>& rs_path,
+                                 double& len){
+    namespace ob = ompl::base;
+    namespace og = ompl::geometric;
+    ob::StateSpacePtr space(std::make_shared<ob::DubinsStateSpace>(_car->minTurningRadius()));
     const unsigned int num_pts = 100;
     ob::ScopedState<> from(space), to(space), s(space);
     from[0] = start.x(); from[1] = start.y(); from[2] = start.theta();

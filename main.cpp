@@ -29,6 +29,8 @@ int main(int argc, char**argv){
         CHECK(start_and_goal.size()==6)<<"start_and_goal must has 6 components!";
         double time_tolerance = 30, step_size = 1.0, turning_penalty_factor = 5.0;
         double goal_tolerance_dist = 0.5, goal_tolerance_theta = 0.1;
+        bool enable_backward = false;
+        reader.getValue("enable_backward", enable_backward); 
         reader.getValue("time_tolerance", time_tolerance); 
         reader.getValue("step_size", step_size); 
         reader.getValue("turning_penalty_factor", turning_penalty_factor); 
@@ -40,7 +42,7 @@ int main(int argc, char**argv){
         car->load(car_info_path);
         
         HybridAStar* planner = new HybridAStar();
-        planner->initialize(car, map, time_tolerance, step_size, 
+        planner->initialize(car, map, enable_backward, time_tolerance, step_size, 
             turning_penalty_factor, goal_tolerance_dist, goal_tolerance_theta);
         Pose2D start(start_and_goal[0], start_and_goal[1], start_and_goal[2]);
         Pose2D goal(start_and_goal[3], start_and_goal[4], start_and_goal[5]);

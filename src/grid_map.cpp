@@ -59,6 +59,10 @@ cv::Mat GridMap::drawResult(const Car& car, const std::vector<Pose2D>& path){
     int r, c;
     Pose2D former = path.at(0);
     for(int i = 0; i < path.size(); i+=1){
+        /* xy2rc(path.at(i).x(), path.at(i).y(), r, c);
+        img.at<cv::Vec3b>(r,c)[0] = 0;
+        img.at<cv::Vec3b>(r,c)[1] = 0;
+        img.at<cv::Vec3b>(r,c)[2] = 255; */
         const auto& pose = path.at(i);
         if(i>0 && i<path.size()-1){
             double dx = pose.x() - former.x();

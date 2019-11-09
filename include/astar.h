@@ -39,10 +39,24 @@ public:
                     const int grid_width,
                     const int grid_height,
                     const int inflation_cell_size);
+    
+    void buildHeuristicGraph(const uint8_t* cdata,
+                    const Cell& start,
+                    const Cell& goal,
+                    const int grid_width,
+                    const int grid_height,
+                    const int inflation_cell_size);
+    uint8_t getCellCost(int row, int col){
+        if(row < 0 || col<0 || row>=_height || col>>_width) return 255;
+        return _heuristic_graph[row*_width+col];
+    }
 private:
     uint8_t getCost(int distance);
+    uint8_t getHeuristicCost(int distance);
     void appendCells(int r, int c, int distance);
+    void appendHeuristicCells(int r, int c, int distance);
     std::vector<uint8_t> _graph;
+    std::vector<uint8_t> _heuristic_graph;
     std::vector<bool> _visited;
     std::map<int, std::vector<CellWithDist> > _cells_cache;
     
